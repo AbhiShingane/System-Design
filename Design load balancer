@@ -1,0 +1,304 @@
+---
+
+# Load Balancer
+
+## Introduction
+
+In a typical scenario, when a client communicates with a server over the internet—for example, accessing `linkedin.com`—the request first goes through a DNS (Domain Name System) to resolve the domain name into an IP address. Once the IP address is returned, the client sends the request to that server over the network.
+
+Generally, DNS services are managed by ISPs (Internet Service Providers), which can be local or global.
+
+The total time taken for a request to reach the server can be approximated as:
+
+```
+Total Time = DNS Resolution Time + Request Processing Time
+```
+
+To reduce DNS lookup time, IP addresses are cached at multiple levels:
+
+* Browser cache
+* Operating system cache
+* ISP cache
+* DNS server cache
+
+---
+
+## Why Load Balancers Are Needed
+
+For high-traffic platforms (e.g., social media or large-scale web applications), relying on a single IP address or server is not sufficient. It can lead to:
+
+* Server overload
+* Increased latency
+* Single point of failure
+
+To handle massive traffic, systems are deployed across multiple servers, each with its own IP address. DNS can return multiple IPs (often in shuffled order) to distribute requests across servers.
+
+However, DNS-based distribution alone is not enough. This is where **load balancers** come into play.
+
+---
+
+## What is a Load Balancer?
+
+A load balancer distributes incoming traffic across multiple application servers to ensure:
+
+* High availability
+* Better performance
+* Efficient resource utilization
+
+Incoming requests typically pass through a load balancer before reaching application servers.
+
+---
+
+## Types of Load Balancers
+
+### 1. Hardware Load Balancer
+
+* Dedicated physical devices
+* High performance but expensive
+* Used in traditional data centers
+
+### 2. Software Load Balancer
+
+* Runs as software (e.g., Nginx, HAProxy)
+* Flexible and cost-effective
+
+#### Based on OSI Layers:
+
+### Layer 4 (L4) Load Balancer
+
+* Operates at the transport layer
+* Uses IP address and port
+* Faster and lightweight
+* Does not inspect request content
+
+### Layer 7 (L7) Load Balancer
+
+* Operates at the application layer
+* Can inspect full request (headers, cookies, URL, etc.)
+* Enables smarter routing (e.g., based on API path)
+* Slightly slower due to deeper inspection
+
+---
+
+## Network Flow
+
+* Clients communicate with the load balancer over the **public network**
+* Load balancer communicates with application servers over a **private network**
+* Application servers are not directly exposed to the internet
+
+Typical protocol flow:
+
+```
+Client → Load Balancer (HTTPS)
+Load Balancer → Application Server (HTTP)
+```
+
+---
+
+## Service Discovery & Health Monitoring
+
+Load balancers rely on a **service registry** that maintains:
+
+* Service IDs
+* IP addresses
+* Health status (active/inactive)
+
+They continuously monitor services using mechanisms like:
+
+* Heartbeats
+* Health checks
+
+When a request arrives:
+
+1. Load balancer may handle SSL termination, authentication, etc.
+2. It queries the service registry for healthy instances
+3. It routes the request based on a load balancing strategy
+
+---
+
+## Load Balancing Strategies
+
+### 1. Round Robin
+
+Requests are distributed sequentially across servers.
+
+**Example:**
+
+```
+Servers: A, B, C
+
+Request flow:
+1 → A  
+2 → B  
+3 → C  
+4 → A  
+```
+
+**Advantages:**
+
+* Simple to implement
+* Fair distribution
+* Low overhead
+
+**Drawbacks:**
+
+* Ignores server load
+* Not ideal for uneven workloads
+
+---
+
+### 2. Least Connections
+
+Requests are routed to the server with the fewest active connections.
+
+**Example:**
+
+```
+A: 10 connections  
+B: 5 connections  
+C: 7 connections  
+
+Next request → B
+```
+
+**Advantages:**
+
+* Better for long-lived connections
+* More dynamic than round robin
+
+**Drawbacks:**
+
+* Does not consider request complexity
+* Can have initial imbalance
+
+---
+
+### 3. Weighted Strategies (Weighted Round Robin / Weighted Least Connections)
+
+Each server is assigned a weight based on its capacity.
+
+**Example:**
+
+```
+A (weight 3), B (weight 1)
+
+Requests:
+A, A, A, B, A, A, A, B ...
+```
+
+**Advantages:**
+
+* Better resource utilization
+* Supports heterogeneous systems
+
+**Drawbacks:**
+
+* Requires monitoring and tuning
+* More complex than basic strategies
+
+---
+
+### 4. Hash-Based Load Balancing
+
+Requests are distributed based on a hash function (e.g., client IP, session ID).
+
+**Example:**
+
+```
+hash(client_id) % N → server index
+```
+
+Ensures that the same client is routed to the same server (useful for sticky sessions).
+
+**Advantages:**
+
+* Consistent routing
+* Useful for caching/session affinity
+
+**Drawbacks:**
+
+* Hash collisions
+* Limited flexibility
+
+---
+
+### 5. Random Allocation
+
+Requests are assigned to servers randomly.
+
+**Example:**
+
+```
+Request 1 → B  
+Request 2 → A  
+Request 3 → C  
+```
+
+**Advantages:**
+
+* Very simple
+* No tracking required
+
+**Drawbacks:**
+
+* Uneven distribution possible
+* Ignores server capacity
+
+---
+
+### 6. Geo-based Load Balancing
+
+Routes requests based on the client’s geographic location.
+
+**Example:**
+
+* User in India → Asia server
+* User in Europe → EU server
+
+**Advantages:**
+
+* Reduced latency
+* Better user experience
+
+**Drawbacks:**
+
+* Geo-IP inaccuracies
+* Higher implementation complexity
+
+---
+
+### 7. Resource-based Load Balancing
+
+Decisions are based on real-time server metrics like:
+
+* CPU usage
+* Memory
+* Network bandwidth
+
+**Advantages:**
+
+* Efficient resource utilization
+* Adaptive to load
+
+**Drawbacks:**
+
+* Requires continuous monitoring
+* Higher overhead
+
+---
+
+### 8. Rate Limiting (Related Concept)
+
+Although not strictly a load balancing strategy, rate limiting helps manage traffic.
+
+It is used to:
+
+* Prevent abuse
+* Protect system resources
+* Ensure fair usage
+
+**Example:**
+
+```
+Max 100 requests per user per minute
+```
