@@ -67,7 +67,7 @@ HIGH COHESION (Microservices):
 ServiceB {
     getOrderDetails() {
         query = "SELECT * FROM service_a.orders WHERE id = ?"
-        // ❌ B depends on A's internal schema
+        // X B depends on A's internal schema
     }
 }
 
@@ -76,7 +76,7 @@ ServiceB {
 ServiceB {
     getOrderDetails(orderId) {
         response = httpClient.get("http://order-service/api/orders/" + orderId)
-        // ✅ Only coupled to the API contract, not internal implementation
+        // Only coupled to the API contract, not internal implementation
     }
 }
 ```
@@ -128,7 +128,7 @@ public:
         cout << "SMS: " << message << endl;
     }
 };
-// ✅ Added SMS without changing NotificationService
+// Added SMS without changing NotificationService
 ```
 
 ---
@@ -140,12 +140,12 @@ public:
 **In Microservices Context:** DRY applies to **technical utilities**, NOT to domain models.
 
 ```
-✅ SHARE (Technical utilities):
+SHARE (Technical utilities):
 - Versioned JAR: ServiceResponse<T> wrapper
 - Versioned JAR: Custom RestTemplate with TLS handling
 - Versioned JAR: Common logging utilities
 
-❌ DO NOT SHARE (Domain models violate Bounded Context):
+DO NOT SHARE (Domain models violate Bounded Context):
 - A single unified "Customer" class across all services
   (Each service should have its own Customer with only its relevant fields)
 ```
