@@ -310,25 +310,3 @@ Not a direct load balancing strategy, but helps control traffic.
 ```text
 Max 100 requests per user per minute
 ```
-
----
-
-## Final Thoughts
-
-Load balancing is a critical component for building scalable and reliable systems.
-
-The choice of strategy depends on:
-
-* Traffic patterns
-* Application behavior
-* Infrastructure design
-
-In real-world systems, multiple strategies are often combined to achieve optimal performance.
-
----
-
-If you want next-level polish, I can also:
-
-* Add **diagrams (DFD / sequence diagrams)** for GitHub
-* Include **real-world tools (Nginx, AWS ELB, Kubernetes LB)**
-* Turn this into a **system design interview cheat sheet** 🚀
