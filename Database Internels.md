@@ -330,3 +330,247 @@ SELECT * FROM orders WHERE customer_id = 4521;
 
 - **Without index:** The DB scans all 10M rows — potentially several seconds per query.
 - **With index on `customer_id`:** The DB looks up the index, finds relevant row IDs instantly, and fetches only those records — typically **milliseconds**.
+
+- ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Why Databases Use B+ Trees to Store Data
+
+## The Original Approach — Flat File Storage
+
+In the early days of databases, records were stored sequentially in flat files on disk — one row written after another, in the order they arrived. Reading or modifying data meant scanning through the file from the beginning.
+
+```
+File on disk:
+[ Record 1 | Record 2 | Record 3 | Record 4 | ... | Record N ]
+```
+
+This is simple, but it does not scale.
+
+---
+
+## ⏱️ The Problem — Everything Is O(n)
+
+For a file with `N` records, every common database operation degenerates to a **linear scan** in the worst case:
+
+| Operation              | How it works on a flat file                              | Time complexity |
+|------------------------|----------------------------------------------------------|-----------------|
+| **Insert** (in-between)| Shift all subsequent records to make room                | O(n)            |
+| **Find** a record      | Scan from the start until the record is found            | O(n)            |
+| **Update** a record    | Find it first, then overwrite                            | O(n)            |
+| **Range query**        | Find the start of the range, then scan forward           | O(n)            |
+| **Delete** a record    | Find it, remove it, shift everything after it            | O(n)            |
+
+> At millions of records, O(n) becomes completely unacceptable — even a single lookup can take seconds.
+
+---
+
+## The Solution — B+ Trees
+
+Instead of writing records sequentially, databases organise them inside a **B+ tree** stored on disk. This brings all the above operations down to **O(log n)** — a dramatic improvement.
+
+| Operation        | Flat file | B+ tree    |
+|------------------|-----------|------------|
+| Insert           | O(n)      | O(log n)   |
+| Find             | O(n)      | O(log n)   |
+| Update           | O(n)      | O(log n)   |
+| Range query      | O(n)      | O(log n) + output |
+| Delete           | O(n)      | O(log n)   |
+
+---
+
+## Disk Block Math
+
+Before diving into the structure, understand how records map to disk blocks:
+
+- **Disk block size** = 4 KB = 4096 B
+- **Record size** = 100 B
+
+```
+Records per disk block = 4096 B ÷ 100 B ≈ 40 records/block
+```
+
+Each **B+ tree node** maps directly to one disk block. Reading a node = one disk I/O. The goal is to minimise the number of nodes visited per operation — and that is exactly what the tree structure guarantees.
+
+---
+
+## Structure of a B+ Tree
+
+A B+ tree has two types of nodes:
+
+- **Internal (non-leaf) nodes** — store only **keys** used for routing. They do not hold actual records.
+- **Leaf nodes** — store the **actual records** (or pointers to them). All leaf nodes are linked together in a sorted doubly-linked list.
+
+```mermaid
+graph TD
+    Root["🔵 Root — Internal Node\n[ 20 ]"]
+    IL["🔵 Internal Node\n[ 10 ]"]
+    IR["🔵 Internal Node\n[ 30 ]"]
+    L1["🟢 Leaf\n[ 5 | 10 ]"]
+    L2["🟢 Leaf\n[ 15 | 20 ]"]
+    L3["🟢 Leaf\n[ 25 | 30 ]"]
+    L4["🟢 Leaf\n[ 35 | 40 ]"]
+
+    Root -->|"key ≤ 20"| IL
+    Root -->|"key > 20"| IR
+    IL  -->|"key ≤ 10"| L1
+    IL  -->|"key > 10"| L2
+    IR  -->|"key ≤ 30"| L3
+    IR  -->|"key > 30"| L4
+
+    L1 -.->|next →| L2
+    L2 -.->|next →| L3
+    L3 -.->|next →| L4
+```
+
+> The dashed arrows represent the **linked list** connecting all leaf nodes in sorted order — this is the key feature that makes range queries efficient.
+
+Each node is **serialised** and stored as a disk block. The tree is traversed by loading only the relevant blocks — typically just **3–4 disk reads** even for a table with millions of rows.
+
+---
+
+## 🔎 Operations in Detail
+
+### 1. Find a record — `WHERE id = 25`
+
+Traverse from root to the matching leaf. Only the nodes on the path are loaded from disk.
+
+```mermaid
+flowchart TD
+    R["Root [ 20 ]"]
+    IR["Internal [ 30 ]"]
+    L["Leaf [ 25 | 30 ]  Found!"]
+
+    R -->|"25 > 20 → go right"| IR
+    IR -->|"25 ≤ 30 → go left"| L
+```
+
+**Cost:** O(log n) — only 3 disk reads for this example, regardless of total table size.
+
+---
+
+### 2. Range query — `WHERE id BETWEEN 15 AND 30`
+
+Find the starting key (15) using the tree, then follow the leaf linked list forward until the range is exhausted.
+
+```mermaid
+flowchart LR
+    R["Root [ 20 ]"]
+    IL["Internal [ 10 ]"]
+    L2["Leaf [ 15 | 20 ]  start"]
+    L3["Leaf [ 25 | 30 ] "]
+    L4["Leaf [ 35 | 40 ] ✖ stop"]
+
+    R -->|"15 ≤ 20"| IL
+    IL -->|"15 > 10"| L2
+    L2 -.->|"linked list →"| L3
+    L3 -.->|"linked list →"| L4
+```
+
+**Cost:** O(log n) to find the start + O(k) to scan k matching records. No backtracking needed — the linked list handles the rest.
+
+---
+
+### 3. Insert a record — `INSERT id = 22`
+
+Traverse to the correct leaf and insert in sorted order. If the leaf is full, it **splits** and propagates the new key up to the parent.
+
+```mermaid
+flowchart TD
+    A["Traverse to correct leaf\n(same as a Find)"]
+    B{"Leaf has\nfree space?"}
+    C["Insert key in sorted order\nwithin the leaf node"]
+    D["Split the leaf into two\nUpdate parent with new key"]
+    E["Propagate split upward\nif parent is also full"]
+
+    A --> B
+    B -->|yes| C
+    B -->|no| D
+    D --> E
+```
+
+**Cost:** O(log n) — traversal + at most O(log n) splits propagating upward.
+
+---
+
+### 4. Delete a record — `DELETE WHERE id = 10`
+
+Find and remove the key from the leaf. If the leaf drops below minimum occupancy, it **borrows** from a sibling or **merges** with one.
+
+```mermaid
+flowchart TD
+    A["Find the leaf containing the key"]
+    B["Remove the key from the leaf"]
+    C{"Leaf still\nabove minimum?"}
+    D["Done "]
+    E{"Can borrow\nfrom sibling?"}
+    F["Borrow a key from sibling\nUpdate parent separator key"]
+    G["Merge leaf with sibling\nRemove separator from parent"]
+
+    A --> B --> C
+    C -->|yes| D
+    C -->|no| E
+    E -->|yes| F --> D
+    E -->|no| G --> D
+```
+
+**Cost:** O(log n) — deletion + at most O(log n) merges propagating upward.
+
+---
+
+### 5. Update a record — `UPDATE SET name = 'Alice' WHERE id = 20`
+
+An update is simply a **Find** followed by an in-place modification of the record in the leaf node. The tree structure itself does not change (unless the indexed key value is modified).
+
+**Cost:** O(log n)
+
+---
+
+## Why This Maps Well to Disk
+
+B+ trees are not just theoretically efficient — they are specifically designed to match how disks work:
+
+- **Each node = one disk block.** A single I/O read loads an entire node.
+- **High branching factor.** A 4 KB block can store hundreds of keys, meaning the tree stays very shallow even for billions of records.
+- **Leaf linked list = sequential disk reads.** Range scans follow the leaf chain, which databases can optimise with sequential I/O — much faster than random access.
+
+```
+Tree height for 1 billion records, branching factor 200:
+  log₂₀₀(1,000,000,000) ≈ 4 levels → only 4 disk reads to find any record
+```
+
+---
+
+## B+ Tree vs Flat File — Summary
+
+```mermaid
+graph LR
+    subgraph "Flat File"
+        F1["Insert → O(n)"]
+        F2["Find   → O(n)"]
+        F3["Range  → O(n)"]
+        F4["Delete → O(n)"]
+    end
+
+    subgraph "B+ Tree"
+        B1["Insert → O(log n)"]
+        B2["Find   → O(log n)"]
+        B3["Range  → O(log n) + k"]
+        B4["Delete → O(log n)"]
+    end
+
+    F1 -.->|improved by| B1
+    F2 -.->|improved by| B2
+    F3 -.->|improved by| B3
+    F4 -.->|improved by| B4
+```
+
+---
+
+## Key Takeaways
+
+- Flat file storage forces O(n) for every operation — unusable at scale.
+- A **B+ tree** brings all operations to **O(log n)** by organising records in a balanced, multi-level tree on disk.
+- **Internal nodes** act as routing guides; **leaf nodes** hold the actual data.
+- **Leaf nodes are linked** — making range queries efficient without needing to traverse the tree again.
+- Each node maps to exactly one **disk block**, minimising I/O — the true bottleneck in database performance.
+- Databases like **PostgreSQL**, **MySQL (InnoDB)**, **SQLite**, and **Oracle** all use B+ trees as their primary on-disk storage structure for indexes and table data.
